@@ -3,8 +3,11 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
+	"golang.org/x/sys/unix"
+	"log"
 	"net"
 	m "pConv/models"
+	"syscall"
 	"time"
 )
 
@@ -55,6 +58,15 @@ func _packetToInt(data []byte) int {
 
 // NewPrinterClient creates a new PrinterClient and connects to the given address.
 func NewPrinterClient(address string) *PrinterClient {
+	fd, err := unix.Socket(syscall.AF_BLUETOOTH, syscall.SOCK_STREAM, unix.BTPROTO_RFCOMM)
+
+	log.Println("unix socket returned a file descriptor: ", fd)
+
+	socketAddr := &unix.SockaddrRFCOMM{Addr: address, Channel: 1}
+	if err := unix.Connect(fd, socketAddr); err != nil {
+		return nil, err
+	}
+
 	conn, err := net.Dial("tcp", address+":1")
 	if err != nil {
 		return nil
