@@ -9,6 +9,7 @@ import (
 	"image/color"
 	_ "image/jpeg"
 	_ "image/png"
+	"log"
 	"os"
 )
 
@@ -38,13 +39,17 @@ func main() {
 	}
 
 	*noCheck = true
+	*address = "08:13:F4:C4:34:53"
 
 	if !*noCheck && (img.Bounds().Max.X != 96 || img.Bounds().Max.Y >= 600) {
 		fmt.Println("Error: Image dimensions are not valid.")
 		return
 	}
 
-	printer := NewPrinterClient(*address)
+	printer, err := NewPrinterClient(*address)
+	if err != nil {
+		log.Fatalln(err)
+	}
 	printer.SetLabelType(byte(*labelType))
 	printer.SetLabelDensity(byte(*density))
 

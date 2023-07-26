@@ -2,17 +2,19 @@ package main
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"golang.org/x/sys/unix"
 	"log"
-	"net"
 	m "pConv/models"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
 
 type PrinterClient struct {
-	Conn      net.Conn
+	fd        int
 	Packetbuf []byte
 }
 
@@ -57,24 +59,48 @@ func _packetToInt(data []byte) int {
 }
 
 // NewPrinterClient creates a new PrinterClient and connects to the given address.
-func NewPrinterClient(address string) *PrinterClient {
-	fd, err := unix.Socket(syscall.AF_BLUETOOTH, syscall.SOCK_STREAM, unix.BTPROTO_RFCOMM)
-
-	log.Println("unix socket returned a file descriptor: ", fd)
-
-	socketAddr := &unix.SockaddrRFCOMM{Addr: address, Channel: 1}
-	if err := unix.Connect(fd, socketAddr); err != nil {
+func NewPrinterClient(address string) (*PrinterClient, error) {
+	mac, err := parseMac(address)
+	if err != nil {
 		return nil, err
 	}
 
-	conn, err := net.Dial("tcp", address+":1")
+	fd, err := unix.Socket(syscall.AF_BLUETOOTH, syscall.SOCK_STREAM, unix.BTPROTO_RFCOMM)
 	if err != nil {
-		return nil
+		return nil, err
 	}
+
+	log.Println("unix socket returned a file descriptor: ", fd)
+
+	err = unix.Connect(fd, &unix.SockaddrRFCOMM{Addr: mac, Channel: 1})
+	if err != nil {
+		return nil, err
+	}
+
 	return &PrinterClient{
-		Conn:      conn,
+		fd:        fd,
 		Packetbuf: make([]byte, 0),
+	}, nil
+}
+
+func parseMac(addr string) ([6]uint8, error) {
+	var mac [6]uint8
+
+	s := strings.Split(addr, ":")
+	if len(s) != 6 {
+		return mac, errors.New("invalid MAC address")
 	}
+
+	for i, si := range s {
+		n, err := strconv.ParseInt(si, 16, 8)
+		if err != nil {
+			return mac, fmt.Errorf("invalid character: %s", err)
+		}
+
+		mac[i] = uint8(n)
+	}
+
+	return mac, nil
 }
 
 // recv receives and deserializes packets from the connection.
@@ -82,7 +108,7 @@ func (c *PrinterClient) recv() ([]*m.NiimbotPacket, error) {
 	packets := make([]*m.NiimbotPacket, 0)
 	buffer := make([]byte, 1024)
 	for {
-		n, err := c.Conn.Read(buffer)
+		n, err := unix.Read(c.fd, buffer)
 		if err != nil {
 			return nil, err
 		}
@@ -106,7 +132,7 @@ func (c *PrinterClient) recv() ([]*m.NiimbotPacket, error) {
 
 // send sends a packet to the connection.
 func (c *PrinterClient) send(packet *m.NiimbotPacket) {
-	c.Conn.Write(ToBytes(packet))
+	unix.Write(c.fd, ToBytes(packet))
 }
 
 // transceive sends a request packet and waits for a response.
